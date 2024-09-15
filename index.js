@@ -1,9 +1,7 @@
 const axios = require('axios');
 const cheerio = require('cheerio');
-const { parse } = require('querystring');
 
 const userAgent = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/112.0.0.0 Safari/537.36";
-const regex = /(?:^|\D)?((?:[1-9]|[1-9]\d|1\d{2}|2[0-4]\d|25[0-5])\.(?:\d|[1-9]\d|1\d{2}|2[0-4]\d|25[0-5])\.(?:\d|[1-9]\d|1\d{2}|2[0-4]\d|25[0-5])\.(?:\d|[1-9]\d|1\d{2}|2[0-4]\d|25[0-5])):(?:\d|[1-9]\d{1,3}|[1-5]\d{4}|6[0-4]\d{3}|65[0-4]\d{2}|655[0-2]\d|6553[0-5])(?:\D|$)/g;
 
 class Telegram {
     constructor(channel, post) {
@@ -17,17 +15,14 @@ class Telegram {
         this.proxyError = 0;
     }
 
+    // Async function to handle requests and process the URL
     async request(proxy, proxyType) {
         try {
             const proxyUrl = `${proxyType}://${proxy}`;
-            const { data: embedPage } = await axios.get(`https://t.me/${this.channel}/${this.post}?embed=1&amp;mode=tme`, {
+            const { data: embedPage } = await axios.get(`https://t.me/${this.channel}/${this.post}?embed=1&mode=tme`, {
                 headers: {
                     'Referer': `https://t.me/${this.channel}/${this.post}`,
                     'User-Agent': userAgent,
-                },
-                proxy: {
-                    host: proxy.split(':')[0],
-                    port: parseInt(proxy.split(':')[1]),
                 },
                 timeout: 5000,
             });
@@ -39,13 +34,9 @@ class Telegram {
                     const viewsToken = viewsTokenMatch[1];
                     const { data: viewsResponse } = await axios.post(`https://t.me/v/?views=${viewsToken}`, {}, {
                         headers: {
-                            'Referer': `https://t.me/${this.channel}/${this.post}?embed=1&amp;mode=tme`,
+                            'Referer': `https://t.me/${this.channel}/${this.post}?embed=1&mode=tme`,
                             'User-Agent': userAgent,
                             'X-Requested-With': 'XMLHttpRequest',
-                        },
-                        proxy: {
-                            host: proxy.split(':')[0],
-                            port: parseInt(proxy.split(':')[1]),
                         },
                         timeout: 5000,
                     });
@@ -108,83 +99,61 @@ class Telegram {
     }
 }
 
-class Auto {
-    constructor() {
-        this.proxies = [];
-        this.init();
+function extractPostDataFromUrl(url) {
+    const regex = /t\.me\/([^\/]+)\/(\d+)/;
+    const match = url.match(regex);
+    if (match) {
+        const channel = match[1];
+        const post = match[2];
+        return { channel, post };
     }
-
-    async scrap(sourceUrl, proxyType) {
-        try {
-            const { data: html } = await axios.get(sourceUrl, {
-                headers: { 'User-Agent': userAgent },
-                timeout: 15000,
-            });
-
-            const matches = Array.from(html.matchAll(regex));
-            for (const match of matches) {
-                this.proxies.push([proxyType, match[1]]);
-            }
-        } catch (error) {
-            fs.appendFileSync('error.txt', `${sourceUrl} -> ${error}\n`, { encoding: 'utf-8' });
-        }
-    }
-
-    async init() {
-        this.proxies = [];
-        const httpSources = fs.readFileSync(path.join('auto', 'http.txt'), 'utf-8').split('\n');
-        const socks4Sources = fs.readFileSync(path.join('auto', 'socks4.txt'), 'utf-8').split('\n');
-        const socks5Sources = fs.readFileSync(path.join('auto', 'socks5.txt'), 'utf-8').split('\n');
-
-        const sources = [
-            { urls: httpSources, type: 'http' },
-            { urls: socks4Sources, type: 'socks4' },
-            { urls: socks5Sources, type: 'socks5' },
-        ];
-
-        await Promise.all(sources.map(source =>
-            Promise.all(source.urls.map(url => this.scrap(url, source.type)))
-        ));
-    }
+    throw new Error('Invalid URL format. Please provide a valid Telegram post URL.');
 }
 
 module.exports = async (req, res) => {
     if (req.method === 'POST') {
-        const body = await new Promise(resolve => {
-            let data = '';
-            req.on('data', chunk => data += chunk);
-            req.on('end', () => resolve(parse(data)));
+        let body = '';
+
+        req.on('data', chunk => {
+            body += chunk;
         });
 
-        const { channel, post, proxy, proxyType, mode } = body;
+        req.on('end', async () => {
+            try {
+                const { url, proxy, proxyType, mode } = JSON.parse(body);
 
-        if (!channel || !post || !mode) {
-            res.status(400).send('Missing required parameters');
-            return;
-        }
+                if (!url || !mode) {
+                    return res.status(400).json({ error: 'Missing required parameters: url and mode are required' });
+                }
 
-        const api = new Telegram(channel, post);
+                const { channel, post } = extractPostDataFromUrl(url);
 
-        if (mode === 'l') {
-            if (proxy) {
-                const lines = proxy.split('\n');
-                await api.runProxiesTasks(lines, proxyType || 'http');
-                res.status(200).send(api.getStats());
-            } else {
-                res.status(400).send('Proxy file path required for mode "l"');
+                const api = new Telegram(channel, post);
+
+                if (mode === 'l') {
+                    if (proxy) {
+                        const lines = proxy.split('\n');
+                        await api.runProxiesTasks(lines, proxyType || 'http');
+                        res.status(200).json(api.getStats());
+                    } else {
+                        res.status(400).json({ error: 'Proxy file path required for mode "l"' });
+                    }
+                } else if (mode === 'r') {
+                    if (proxy) {
+                        await api.runRotatedTask(proxy, proxyType || 'http');
+                        res.status(200).json(api.getStats());
+                    } else {
+                        res.status(400).json({ error: 'Proxy required for mode "r"' });
+                    }
+                } else {
+                    await api.runAutoTasks();
+                    res.status(200).json(api.getStats());
+                }
+            } catch (error) {
+                res.status(500).json({ error: error.message });
             }
-        } else if (mode === 'r') {
-            if (proxy) {
-                await api.runRotatedTask(proxy, proxyType || 'http');
-                res.status(200).send(api.getStats());
-            } else {
-                res.status(400).send('Proxy required for mode "r"');
-            }
-        } else {
-            await api.runAutoTasks();
-            res.status(200).send(api.getStats());
-        }
+        });
     } else {
-        res.status(405).send('Method Not Allowed');
+        res.status(405).json({ error: 'Method Not Allowed' });
     }
 };
