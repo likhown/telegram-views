@@ -1,0 +1,57 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Telegram Post Viewer</title>
+</head>
+<body>
+    <h1>Submit Telegram Post URL</h1>
+    <form id="telegram-form">
+        <label for="url">Telegram Post URL:</label>
+        <input type="text" id="url" name="url" required><br>
+
+        <label for="proxy">Proxy (Optional):</label>
+        <textarea id="proxy" name="proxy" placeholder="user:password@host:port (or leave blank)"></textarea><br>
+
+        <label for="proxyType">Proxy Type:</label>
+        <select id="proxyType" name="proxyType">
+            <option value="http">HTTP</option>
+            <option value="socks4">Socks4</option>
+            <option value="socks5">Socks5</option>
+        </select><br>
+
+        <label for="mode">Mode:</label>
+        <select id="mode" name="mode" required>
+            <option value="l">Load Proxies</option>
+            <option value="r">Rotate Proxies</option>
+        </select><br>
+
+        <button type="submit">Submit</button>
+    </form>
+
+    <pre id="result"></pre>
+
+    <script>
+        document.getElementById('telegram-form').addEventListener('submit', async function (event) {
+            event.preventDefault();
+
+            const url = document.getElementById('url').value;
+            const proxy = document.getElementById('proxy').value;
+            const proxyType = document.getElementById('proxyType').value;
+            const mode = document.getElementById('mode').value;
+
+            const response = await fetch('/api', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                },
+                body: JSON.stringify({ url, proxy, proxyType, mode }),
+            });
+
+            const result = await response.json();
+            document.getElementById('result').textContent = JSON.stringify(result, null, 2);
+        });
+    </script>
+</body>
+</html>
