@@ -1,8 +1,6 @@
 const axios = require('axios');
 const cheerio = require('cheerio');
-const { execSync } = require('child_process');
-const fs = require('fs');
-const path = require('path');
+const { parse } = require('querystring');
 
 const userAgent = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/112.0.0.0 Safari/537.36";
 const regex = /(?:^|\D)?((?:[1-9]|[1-9]\d|1\d{2}|2[0-4]\d|25[0-5])\.(?:\d|[1-9]\d|1\d{2}|2[0-4]\d|25[0-5])\.(?:\d|[1-9]\d|1\d{2}|2[0-4]\d|25[0-5])\.(?:\d|[1-9]\d|1\d{2}|2[0-4]\d|25[0-5])):(?:\d|[1-9]\d{1,3}|[1-5]\d{4}|6[0-4]\d{3}|65[0-4]\d{2}|655[0-2]\d|6553[0-5])(?:\D|$)/g;
@@ -99,31 +97,14 @@ class Telegram {
         return result;
     }
 
-    cli() {
-        const logo = `
-~ Telegram Auto Views V4 ~
-  ~ github.com/TeaByte ~
-       ~ @TeaByte ~
-        `;
-
-        const updateStats = () => {
-            console.clear();
-            console.log(logo);
-            console.log(`
-DATA: 
-@${this.channel}/${this.post}
-Sent: ${this.successSent}
-Fail: ${this.failedSent}
-
-ERRORS:
-Proxy Error:  ${this.proxyError}
-Token Error:  ${this.tokenError}
-Cookie Error: ${this.cookieError}
-            `);
+    getStats() {
+        return {
+            successSent: this.successSent,
+            failedSent: this.failedSent,
+            cookieError: this.cookieError,
+            tokenError: this.tokenError,
+            proxyError: this.proxyError,
         };
-
-        const intervalId = setInterval(updateStats, 300);
-        setTimeout(() => clearInterval(intervalId), 60000);  // Run for 1 minute and stop
     }
 }
 
@@ -167,39 +148,43 @@ class Auto {
     }
 }
 
-// Command line argument parsing
-const argv = require('minimist')(process.argv.slice(2));
+module.exports = async (req, res) => {
+    if (req.method === 'POST') {
+        const body = await new Promise(resolve => {
+            let data = '';
+            req.on('data', chunk => data += chunk);
+            req.on('end', () => resolve(parse(data)));
+        });
 
-const channel = argv.channel;
-const post = argv.post;
-const proxyType = argv.type || 'http';
-const mode = argv.mode;
-const proxyFile = argv.proxy;
+        const { channel, post, proxy, proxyType, mode } = body;
 
-if (!channel || !post || !mode) {
-    console.error('Missing required arguments');
-    process.exit(1);
-}
+        if (!channel || !post || !mode) {
+            res.status(400).send('Missing required parameters');
+            return;
+        }
 
-const api = new Telegram(channel, post);
+        const api = new Telegram(channel, post);
 
-api.cli();
-
-if (mode === 'l') {
-    if (proxyFile) {
-        const lines = fs.readFileSync(proxyFile, 'utf-8').split('\n');
-        api.runProxiesTasks(lines, proxyType);
+        if (mode === 'l') {
+            if (proxy) {
+                const lines = proxy.split('\n');
+                await api.runProxiesTasks(lines, proxyType || 'http');
+                res.status(200).send(api.getStats());
+            } else {
+                res.status(400).send('Proxy file path required for mode "l"');
+            }
+        } else if (mode === 'r') {
+            if (proxy) {
+                await api.runRotatedTask(proxy, proxyType || 'http');
+                res.status(200).send(api.getStats());
+            } else {
+                res.status(400).send('Proxy required for mode "r"');
+            }
+        } else {
+            await api.runAutoTasks();
+            res.status(200).send(api.getStats());
+        }
     } else {
-        console.error('Proxy file path required for mode "l"');
-        process.exit(1);
+        res.status(405).send('Method Not Allowed');
     }
-} else if (mode === 'r') {
-    if (proxyFile) {
-        api.runRotatedTask(proxyFile, proxyType);
-    } else {
-        console.error('Proxy required for mode "r"');
-        process.exit(1);
-    }
-} else {
-    api.runAutoTasks();
-}
+};
