@@ -1,3 +1,4 @@
+
 import aiohttp, asyncio
 from re import search
 from aiohttp_socks import ProxyConnector
@@ -101,9 +102,9 @@ class Telegram:
 
     def cli(self):
         logo = '''
-        ~ Telegram Auto Views V4 ~
-          ~ github.com/TeaByte ~
-               ~ @TeaByte ~
+        ~ Telegram  ~
+          ~ github.com/likhown ~
+               ~ @likhown ~
         '''
         while not self.sucsess_sent:
             print(logo)
